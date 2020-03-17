@@ -1,0 +1,69 @@
+#!/bin/bash
+
+echo "Update hostname to FQDN"
+hostnamectl set-hostname $(hostname -f)
+
+echo "Ensure swap is off"
+swapoff -a
+
+echo "Update server and install required packages"
+sudo apt-get update && sudo apt-get install -y apt-transport-https curl
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+cat <<EOF | sudo tee /etc/apt/sources.list.d/kubernetes.list
+deb https://apt.kubernetes.io/ kubernetes-xenial main
+EOF
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
+echo "Install and start docker"
+sudo apt install docker.io -y
+
+cat > /etc/docker/daemon.json <<EOF
+{
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "100m"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+ 
+sudo systemctl restart docker
+sudo systemctl enable docker
+
+echo "Create kubeadm.conf"
+cat > /etc/kubernetes/kubeadm.conf <<EOF
+---
+apiServer:
+  extraArgs:
+    cloud-provider: aws
+apiServer:
+  certSANs:
+  - console-cluster1.pk.com
+apiServerExtraArgs:
+  endpoint-reconciler-type: lease
+apiVersion: kubeadm.k8s.io/v1beta2
+clusterName: cluster1 #your cluster name
+controlPlaneEndpoint: console-cluster1.pk.com #your VIP DNS name
+controllerManager:
+  extraArgs:
+    cloud-provider: aws
+    configure-cloud-routes: 'false'
+kind: ClusterConfiguration
+kubernetesVersion: 1.17.0 #your desired k8s version
+networking:
+  dnsDomain: cluster.local
+  podSubnet: 172.16.0.0/16 #your pod subnet matching your CNI config
+nodeRegistration:
+  kubeletExtraArgs:
+    cloud-provider: aws
+EOF
+
+echo "Update /etc/systemd/system/kubelet.service.d/10-kubeadm.conf file with cloudprovider"
+echo "--cloud-provider=aws" >> /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+systemctl daemon-reload
+
+echo "Initialize first master"
+kubeadm init --config /etc/kubernetes/kubeadm.conf --upload-certs
