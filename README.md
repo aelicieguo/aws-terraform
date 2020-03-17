@@ -17,3 +17,15 @@ $ terraform workspace new cluster2
 
 To switch between the workspaces:
 $ terraform workspace select <workspace_name>
+
+Kubernetes:
+Once CP1 is up, these commands are executed:
+$ mkdir -p $HOME/.kube
+$ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+$ sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Remaining nodes are joined to the first node.
+
+Once all nodes are joined, they are NotReady, because absence of CNI
+
+$ kubectl apply -f https://docs.projectcalico.org/v3.9/manifests/calico.yaml
